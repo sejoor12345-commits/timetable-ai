@@ -1,0 +1,10 @@
+# API 키 (로컬 PC용. Colab에서는 보안 비밀을 쓴다)
+.env
+# 파이썬 캐시
+__pycache__/
+*.pyc
+# 테스트 중 생기는 파일
+test-results/
+screenshots/
+# 근무표 서버 기록 (Colab 셀 3이 timetable_server/server.log 로 모음)
+server.log
