@@ -52,6 +52,15 @@ the auto-generated roster.
 - **Colab** runs `timetable_server/server.py` (serves `index.html` + `/api/*`) — the only place the AI works today.
 - Browser autosave is per origin: moving between Colab, Vercel and a double-clicked file needs the backup code.
 
+## MCP servers (`.mcp.json`)
+
+- `supabase` (HTTP, `https://mcp.supabase.com/mcp`) — added so roster data can later live in Supabase and be shared
+  across devices. Nothing in the app uses Supabase yet; that needs a PRD step first (`product-manager`).
+- Cloud sessions need `mcp.supabase.com` allowed in the environment's network access, or the server can't connect.
+  It asks for a Supabase login (OAuth) on first use; if that can't complete in a cloud session, use a Supabase
+  personal access token kept in the environment's secrets, never committed.
+- Never put a Supabase service-role key in `index.html` — anything in that file is public on Vercel.
+
 ## Testing
 
 No API key here and `openrouter.ai` is blocked, so AI calls are verified against fakes: patch `requests.post`
