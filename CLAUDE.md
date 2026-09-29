@@ -30,7 +30,8 @@ the auto-generated roster.
   API with relative URLs, so it works through the Colab proxy.
 - **`index.html` stays one self-contained file** (HTML+CSS+JS inline, no CDN/external libraries, Chrome/Edge,
   phone width). Double-clicked offline it must still do everything it did before, including applying preference
-  rules already saved in it (localStorage + backup code); only the AI buttons need the Colab server, and they say so.
+  rules already saved in it (localStorage copy + backup code); only the AI buttons need the Colab server, and they say so.
+- **Data lives in Supabase** (cloud save, see below); localStorage is kept as the offline copy, not removed.
 - **Privacy:** only the preference text, the people's names and the period dates go to OpenRouter — not the roster.
   The UI reminds the user to use pseudonyms (A, B, C…), never real names or unit info.
 
@@ -50,16 +51,28 @@ the auto-generated roster.
   못했어요" and everything else (manual input, checks, auto-generation, saved preference rules) works. Running the AI on
   Vercel would need a serverless function + the key in Vercel env vars + some access protection — not done yet.
 - **Colab** runs `timetable_server/server.py` (serves `index.html` + `/api/*`) — the only place the AI works today.
-- Browser autosave is per origin: moving between Colab, Vercel and a double-clicked file needs the backup code.
+- Data follows the **저장 코드** (Supabase), not the origin: on a new origin/device the page starts a new code, and the
+  user loads the old one with [다른 코드로 불러오기] (or the backup code, which still works).
 
-## MCP servers (`.mcp.json`)
+## Supabase (cloud save)
 
-- `supabase` (HTTP, `https://mcp.supabase.com/mcp`) — added so roster data can later live in Supabase and be shared
-  across devices. Nothing in the app uses Supabase yet; that needs a PRD step first (`product-manager`).
-- Cloud sessions need `mcp.supabase.com` allowed in the environment's network access, or the server can't connect.
-  It asks for a Supabase login (OAuth) on first use; if that can't complete in a cloud session, use a Supabase
-  personal access token kept in the environment's secrets, never committed.
-- Never put a Supabase service-role key in `index.html` — anything in that file is public on Vercel.
+- Project `ixwevjgmjoclxflshbjj` (region ap-southeast-1). Managed from Claude through the **claude.ai Supabase
+  connector** (`mcp__Supabase__*`) — the repo's `.mcp.json` was removed on purpose; the connector needs no network
+  allowlist or OAuth in the container.
+- Schema is `supabase/rosters.sql` (applied as migration `create_rosters`): table `public.rosters(code, data jsonb,
+  updated_at)` with RLS on and **no policies**, so the browser can't touch the table; it only calls the
+  `SECURITY DEFINER` functions `load_roster(p_code)` / `save_roster(p_code, p_data)` over REST (`/rest/v1/rpc/…`,
+  plain `fetch`, no supabase-js). Knowing the 16-char 저장 코드 = access to that roster. The advisor warnings about
+  anon executing SECURITY DEFINER functions are intentional. Schema changes go through `apply_migration` and must
+  keep `supabase/rosters.sql` in sync.
+- `index.html` holds `SUPABASE_URL` and the **publishable** key (public by design). Never put a service-role/secret key
+  there — anything in that file is public on Vercel.
+- Sync (`index.html`, "클라우드 저장"): the local copy renders first, then `load_roster`; edits are debounced (1.5 s)
+  and pushed with `save_roster`. Unpushed edits are flagged in localStorage (`timetable-cloud-dirty`) and win over the
+  cloud copy on the next successful connection; otherwise the cloud copy wins. Last write wins across devices.
+  Undo history (`timetable-auto-v2`) stays local only, like the backup code.
+- This container can't reach `*.supabase.co` (proxy 403), so the app's sync is tested with Playwright `page.route`
+  faking the two RPCs; the DB side is tested through the connector (`execute_sql` with `set local role anon`).
 
 ## Testing
 
@@ -88,9 +101,11 @@ directly, so open decisions come back in their reports ("사용자에게 물어�
 ## Current state
 
 - Step 1 (AI preference feature) is **built and QA'd**: `timetable_server/` (server + OpenRouter client + prompts) and
-  `index.html` (preference scoring, 선호도 tab, result card). `runTests()` = 221 passing; with no rules the auto-generator
+  `index.html` (preference scoring, 선호도 tab, result card). `runTests()` = 224 passing; with no rules the auto-generator
   is identical to the imported original (same seed → same roster). The user still has to check real-AI quality in Colab
   (PRD_step1 §9.1) — the container has no key.
+- Cloud save (Supabase) is built and tested against a faked Supabase; the real round trip is checked by the user on
+  Vercel/Colab (this container can't reach supabase.co).
 - Known limits (not bugs, QA-measured): 야야/위로휴가 misses on tight setups (5명·4주·전원 목표 3) come from the time-boxed
   search on slow PCs, same as the original; few weak rules barely move the result, and pressing [다시 생성] repeatedly
   improves it (it only accepts a lower total penalty).

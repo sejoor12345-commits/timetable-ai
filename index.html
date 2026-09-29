@@ -167,6 +167,12 @@
   .prev .date { text-align: right; font-weight: bold; }
   #backup-text { display: block; width: 100%; height: 70px; margin-top: 8px; font-family: Consolas, monospace; font-size: 12px; }
   .msg-ok { color: var(--good); margin-left: 8px; font-weight: bold; }
+  .cloud-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0; }
+  .cloud-row input[type="text"] { width: 190px; font-family: Consolas, monospace; }
+  #cloud-status { margin: 0 0 6px; font-weight: bold; }
+  #cloud-status[data-state="saved"] { color: var(--good); }
+  #cloud-status[data-state="error"] { color: var(--error-text); }
+  #cloud-status[data-state="loading"], #cloud-status[data-state="saving"] { color: var(--muted); }
   .msg-error { color: var(--error-text); font-weight: bold; margin-left: 8px; }
 
   /* 도구 막대 (자동 생성) */
@@ -811,6 +817,27 @@
     </div>
 
     <div class="card">
+      <div class="card-head"><h2>클라우드 저장</h2><span class="eyebrow">SUPABASE</span></div>
+      <div class="card-body">
+        <p id="cloud-status" role="status" aria-live="polite" data-state="loading">클라우드 확인 중…</p>
+        <div class="cloud-row">
+          <label for="cloud-code">내 저장 코드</label>
+          <input type="text" id="cloud-code" readonly>
+          <button type="button" id="cloud-copy">복사</button>
+          <button type="button" id="cloud-retry" hidden>다시 시도</button>
+        </div>
+        <div class="cloud-row">
+          <label for="cloud-open-code">다른 코드로 불러오기</label>
+          <input type="text" id="cloud-open-code" spellcheck="false" autocomplete="off" placeholder="예: AbCd-EfGh-JkMn-PqRs">
+          <button type="button" id="cloud-open">불러오기</button>
+        </div>
+        <span id="cloud-msg"></span>
+        <p class="help" style="margin-top:8px">입력한 내용은 Supabase 데이터베이스에 자동 저장돼요. 다른 PC·휴대폰에서는 저장 코드로 불러오세요.
+          저장 코드를 아는 사람은 누구나 이 근무표를 보고 고칠 수 있으니 남에게 알려주지 말고, 이름은 가명(A, B, C…)으로 쓰세요.</p>
+      </div>
+    </div>
+
+    <div class="card">
       <div class="card-head"><h2>백업</h2><span class="eyebrow">BACKUP</span></div>
       <div class="card-body">
         <button type="button" id="backup-copy">백업 코드 복사</button>
@@ -818,7 +845,7 @@
         <span id="backup-msg"></span>
         <textarea id="backup-text" spellcheck="false"
           placeholder="[복원]하려면 백업 코드를 여기에 붙여넣고 [복원]을 누르세요."></textarea>
-        <p class="help" style="margin-top:8px">입력한 내용은 이 브라우저에 자동 저장되고, 다시 열면 그대로 복원됩니다.
+        <p class="help" style="margin-top:8px">클라우드에 연결되지 않을 때도 입력한 내용은 이 브라우저에 저장되고, 다시 연결되면 클라우드로 올라갑니다.
           <span id="save-msg"></span></p>
       </div>
     </div>
@@ -2990,6 +3017,28 @@ function parseBackupCode(text) {
   }
 }
 
+// --- 클라우드 저장 코드 (Supabase의 save_roster·load_roster 함수와 같은 규칙: 영문·숫자 12~64자) ---
+var CLOUD_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'; // 헷갈리는 0 O 1 l I 는 뺌
+var CLOUD_CODE_LENGTH = 16;
+
+// 난수 16개(0~255) -> 저장 코드 16자
+function makeCloudCode(randomBytes) {
+  var code = '';
+  for (var i = 0; i < CLOUD_CODE_LENGTH; i++) code += CLOUD_CODE_CHARS[randomBytes[i] % CLOUD_CODE_CHARS.length];
+  return code;
+}
+
+// 사람이 입력한 저장 코드 -> 공백·'-' 를 뺀 코드. 형식이 틀리면 null
+function normalizeCloudCode(text) {
+  var code = String(text || '').replace(/[\s-]+/g, '');
+  return /^[A-Za-z0-9]{12,64}$/.test(code) ? code : null;
+}
+
+// 읽기 쉽게 4자마다 '-'. 예: AbCdEfGh -> AbCd-EfGh
+function formatCloudCode(code) {
+  return String(code).replace(/(.{4})(?=.)/g, '$1-');
+}
+
 /* =========================================================
    화면 코드
    ========================================================= */
@@ -3039,21 +3088,192 @@ function loadSaved() {
   }
 }
 
+// 바뀔 때마다 저장: 클라우드(Supabase)에 올리고(잠깐 모았다가), 이 브라우저에도 사본을 둠 (연결이 안 될 때·파일로 열었을 때용)
 function saveState() {
+  var text = JSON.stringify(state);
   var msg = document.getElementById('save-msg');
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    localStorage.setItem(STORAGE_KEY, text);
     msg.textContent = '';
     msg.className = '';
   } catch (e) {
-    msg.textContent = '자동 저장에 실패했습니다. [백업 코드 복사]로 따로 보관하세요.';
+    msg.textContent = '브라우저 저장에 실패했습니다. [백업 코드 복사]로 따로 보관하세요.';
     msg.className = 'msg-error';
   }
+  if (text !== cloud.syncedText) {
+    setCloudDirty(true);
+    scheduleCloudSave();
+  }
+}
+
+/* --- 클라우드 저장 (Supabase) ---
+   Supabase 데이터베이스의 rosters 표에 '저장 코드' 하나당 근무표 한 벌을 저장한다 (supabase/rosters.sql).
+   표를 직접 읽고 쓰지는 못하고, 저장 코드를 넘겨 load_roster·save_roster 함수로만 드나든다.
+   아래 키는 publishable(공개용) 키라 페이지에 있어도 괜찮다. service_role·secret 키는 절대 여기에 넣지 않는다. */
+var SUPABASE_URL = 'https://ixwevjgmjoclxflshbjj.supabase.co';
+var SUPABASE_KEY = 'sb_publishable_3ngrLMog2Sid9oWK6nqnyw_eREsaSvI';
+var CLOUD_CODE_KEY = 'timetable-cloud-code';   // 이 브라우저의 저장 코드
+var CLOUD_DIRTY_KEY = 'timetable-cloud-dirty'; // '1' = 클라우드에 아직 못 올린 변경이 있음
+var CLOUD_SAVE_DELAY_MS = 1500;  // 입력을 잠깐 모았다가 한 번에 올림
+var CLOUD_TIMEOUT_MS = 15000;
+
+var cloud = {
+  code: null,
+  syncedText: null, // 클라우드에 있는 것과 같은 내용 (JSON 글자)
+  dirty: false,
+  ready: false,     // 처음 불러오기가 끝났는지 (그 전에는 올리지 않음)
+  saving: false,
+  timer: null
+};
+
+function setCloudDirty(dirty) {
+  cloud.dirty = dirty;
+  try {
+    if (dirty) localStorage.setItem(CLOUD_DIRTY_KEY, '1');
+    else localStorage.removeItem(CLOUD_DIRTY_KEY);
+  } catch (e) { /* 무시 */ }
+}
+
+// Supabase 함수 부르기 (REST: POST /rest/v1/rpc/함수이름). 실패하면 Error 로 끝나는 Promise
+function supabaseRpc(name, args, keepalive) {
+  var controller = typeof AbortController === 'function' ? new AbortController() : null;
+  var timer = controller ? setTimeout(function () { controller.abort(); }, CLOUD_TIMEOUT_MS) : null;
+  return fetch(SUPABASE_URL + '/rest/v1/rpc/' + name, {
+    method: 'POST',
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': 'Bearer ' + SUPABASE_KEY,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(args),
+    signal: controller ? controller.signal : undefined,
+    keepalive: !!keepalive
+  }).then(function (res) {
+    return res.text().then(function (body) {
+      var data = null;
+      try { data = body ? JSON.parse(body) : null; } catch (e) { data = null; }
+      if (!res.ok) throw new Error((data && data.message) || ('서버 응답 ' + res.status));
+      return data;
+    });
+  }).finally(function () {
+    if (timer) clearTimeout(timer);
+  });
+}
+
+function showCloudStatus(stateName, text) {
+  var el = document.getElementById('cloud-status');
+  el.dataset.state = stateName;
+  el.textContent = text;
+  document.getElementById('cloud-retry').hidden = stateName !== 'error';
+}
+
+function showCloudMsg(text, isError) {
+  var el = document.getElementById('cloud-msg');
+  el.textContent = text;
+  el.className = text ? (isError ? 'msg-error' : 'msg-ok') : '';
+}
+
+function cloudErrorText(err) {
+  if (!navigator.onLine) return '인터넷에 연결되어 있지 않아요.';
+  if (err && err.name === 'AbortError') return '클라우드 응답이 너무 늦어요.';
+  return '클라우드에 연결하지 못했어요.';
+}
+
+function timeText(date) {
+  return String(date.getHours()).padStart(2, '0') + ':' + String(date.getMinutes()).padStart(2, '0');
+}
+
+function scheduleCloudSave() {
+  if (!cloud.ready) return;
+  clearTimeout(cloud.timer);
+  cloud.timer = setTimeout(pushCloud, CLOUD_SAVE_DELAY_MS);
+}
+
+// 지금 근무표를 클라우드에 올림
+function pushCloud(keepalive) {
+  if (!cloud.ready || !cloud.code) return Promise.resolve(false);
+  clearTimeout(cloud.timer);
+  if (cloud.saving) { // 올리는 중이면 끝난 뒤 다시
+    scheduleCloudSave();
+    return Promise.resolve(false);
+  }
+  var text = JSON.stringify(state);
+  cloud.saving = true;
+  showCloudStatus('saving', '클라우드에 저장 중…');
+  return supabaseRpc('save_roster', { p_code: cloud.code, p_data: state }, keepalive).then(function () {
+    cloud.saving = false;
+    cloud.syncedText = text;
+    if (JSON.stringify(state) === text) setCloudDirty(false);
+    else scheduleCloudSave(); // 올리는 사이에 또 바뀜
+    showCloudStatus('saved', '☁️ 클라우드에 저장됨 (' + timeText(new Date()) + ')');
+    return true;
+  }, function (err) {
+    cloud.saving = false;
+    showCloudStatus('error', cloudErrorText(err) + ' 지금은 이 브라우저에만 저장돼요. 연결되면 [다시 시도]를 눌러 주세요.');
+    return false;
+  });
+}
+
+// 클라우드에서 받은 근무표로 화면을 바꿈
+function applyCloudData(data) {
+  closePicker();
+  useData(data);
+  forgetAutoResult();
+  forgetPrefSession();
+  cloud.syncedText = JSON.stringify(state);
+  setCloudDirty(false);
+  syncSettings();
+  renderPeople();
+  renderSchedule();
+}
+
+// 저장 코드의 근무표를 클라우드에서 받아옴. 클라우드에 없으면(새 코드) 지금 것을 올림
+function pullCloud() {
+  showCloudStatus('loading', '클라우드에서 불러오는 중…');
+  return supabaseRpc('load_roster', { p_code: cloud.code }).then(function (data) {
+    cloud.ready = true;
+    if (data === null || cloud.dirty) return pushCloud(); // 새 코드이거나, 연결 안 될 때 고친 내용이 있음
+    var loaded;
+    try {
+      loaded = normalizeData(data);
+    } catch (e) {
+      showCloudStatus('error', '클라우드의 근무표가 깨져 있어 불러오지 않았어요. (' + e.message + ')');
+      return false;
+    }
+    if (JSON.stringify(loaded) !== JSON.stringify(state)) applyCloudData(loaded);
+    else cloud.syncedText = JSON.stringify(state);
+    showCloudStatus('saved', '☁️ 클라우드와 연결됨 (' + timeText(new Date()) + ' 불러옴)');
+    return true;
+  }, function (err) {
+    showCloudStatus('error', cloudErrorText(err) + ' 지금은 이 브라우저에 저장된 근무표를 보여 줘요. 연결되면 [다시 시도]를 눌러 주세요.');
+    return false;
+  });
+}
+
+// 페이지를 열 때 1번: 저장 코드를 정하고 클라우드와 맞춤
+function startCloudSync() {
+  var code = null;
+  try {
+    code = normalizeCloudCode(localStorage.getItem(CLOUD_CODE_KEY));
+  } catch (e) { /* 브라우저 저장이 막혀 있어도 클라우드는 씀 */ }
+  if (!code) {
+    var bytes = new Uint8Array(CLOUD_CODE_LENGTH);
+    crypto.getRandomValues(bytes);
+    code = makeCloudCode(bytes);
+    try { localStorage.setItem(CLOUD_CODE_KEY, code); } catch (e) { /* 무시 */ }
+    setCloudDirty(true); // 새 코드: 지금 브라우저의 근무표를 처음으로 올림
+  }
+  cloud.code = code;
+  document.getElementById('cloud-code').value = formatCloudCode(code);
+  return pullCloud();
 }
 
 var state = defaultState();
 var saved = loadSaved();
 if (saved) useData(saved);
+// 클라우드 비교 기준: 이 브라우저 사본. 지난번에 못 올린 변경이 있었는지도 읽어 둠
+cloud.syncedText = JSON.stringify(state);
+try { cloud.dirty = localStorage.getItem(CLOUD_DIRTY_KEY) === '1'; } catch (e) { /* 무시 */ }
 
 var startInput = document.getElementById('start-date');
 var startNotice = document.getElementById('start-notice');
@@ -4487,6 +4707,88 @@ document.getElementById('backup-restore').addEventListener('click', function () 
   showBackupMsg('복원했습니다.', false);
 });
 
+/* --- 클라우드 저장 버튼 --- */
+
+document.getElementById('cloud-copy').addEventListener('click', function () {
+  var input = document.getElementById('cloud-code');
+  var done = function (ok) {
+    if (ok) {
+      showCloudMsg('저장 코드를 복사했어요. 다른 기기에서 [다른 코드로 불러오기]에 붙여넣으세요.', false);
+    } else {
+      input.select();
+      showCloudMsg('자동 복사가 안 됐어요. 위 칸의 코드를 Ctrl+C 로 직접 복사하세요.', true);
+    }
+  };
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(input.value).then(function () { done(true); }, function () { done(false); });
+  } else {
+    input.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    done(ok);
+  }
+});
+
+document.getElementById('cloud-retry').addEventListener('click', function () {
+  showCloudMsg('', false);
+  pullCloud();
+});
+
+document.getElementById('cloud-open').addEventListener('click', function () {
+  var input = document.getElementById('cloud-open-code');
+  var button = this;
+  var code = normalizeCloudCode(input.value);
+  if (!code) {
+    showCloudMsg('저장 코드는 영문·숫자 12자 이상이에요. 빠짐없이 붙여넣었는지 확인하세요.', true);
+    return;
+  }
+  if (code === cloud.code) {
+    showCloudMsg('지금 쓰고 있는 저장 코드예요.', true);
+    return;
+  }
+  button.disabled = true;
+  showCloudMsg('불러오는 중…', false);
+  supabaseRpc('load_roster', { p_code: code }).then(function (data) {
+    button.disabled = false;
+    if (data === null) {
+      showCloudMsg('그 저장 코드로 저장된 근무표가 없어요. 코드를 다시 확인하세요.', true);
+      return;
+    }
+    var loaded;
+    try {
+      loaded = normalizeData(data);
+    } catch (e) {
+      showCloudMsg('그 코드의 근무표가 깨져 있어요. (' + e.message + ')', true);
+      return;
+    }
+    if (!confirm('지금 근무표를 이 저장 코드의 근무표로 바꿀까요?\n' +
+      '지금 근무표는 원래 저장 코드(' + formatCloudCode(cloud.code) + ')에 남아 있어요. 필요하면 코드를 적어 두세요.')) {
+      showCloudMsg('', false);
+      return;
+    }
+    // 바꾸기 전에 지금 근무표를 원래 코드에 마저 올려 둠 (실패해도 이 브라우저 백업 코드로는 남길 수 있음)
+    var flush = cloud.dirty ? pushCloud() : Promise.resolve(true);
+    flush.then(function () {
+      cloud.code = code;
+      try { localStorage.setItem(CLOUD_CODE_KEY, code); } catch (e) { /* 무시 */ }
+      document.getElementById('cloud-code').value = formatCloudCode(code);
+      input.value = '';
+      cloud.ready = true;
+      applyCloudData(loaded);
+      showCloudStatus('saved', '☁️ 클라우드와 연결됨 (' + timeText(new Date()) + ' 불러옴)');
+      showCloudMsg('불러왔어요. 이제부터 이 저장 코드에 저장돼요.', false);
+    });
+  }, function (err) {
+    button.disabled = false;
+    showCloudMsg(cloudErrorText(err) + ' 잠시 뒤 다시 눌러 주세요.', true);
+  });
+});
+
+// 창을 닫거나 다른 앱으로 넘어갈 때: 아직 못 올린 변경이 있으면 바로 올림
+document.addEventListener('visibilitychange', function () {
+  if (document.visibilityState === 'hidden' && cloud.dirty && cloud.ready) pushCloud(true);
+});
+
 /* =========================================================
    선호도 화면 (PRD_step1 F8~F11): AI 서버 연결 상태, 선호도 탭, 근무표 탭의 '선호도 반영 결과'
    계산은 계산 로직의 함수(preferenceReport, preferenceConflicts, matchPreferenceResult …)를 부르기만 하고,
@@ -5199,6 +5501,7 @@ renderSchedule();
 renderAiStatus();
 updatePrefButtons();
 checkAiServer(); // 페이지를 열 때 1번 (파일로 열렸으면 요청 없이 '파일로 열림')
+startCloudSync(); // 이 브라우저의 근무표를 먼저 보여 주고, 클라우드(Supabase)에서 받아 와 맞춤
 </script>
 <script>
 /* =========================================================
@@ -6136,6 +6439,21 @@ function runTests() {
   var longNamed = [{ id: 1, name: 'ABCDEABCDEABCDEABCDEABCDE', prefs: [WEEKEND_DAY] }];
   check('AI 결과 설명 요청: 이름 20자 등 서버 한도에 맞게 자름',
     preferenceSummaryRequest(preferenceReport(longNamed, {}, dates, null, {}), longNamed, '2026-09-28', 4, null).people[0].name.length, 20);
+
+  // --- 클라우드 저장 코드 (Supabase) ---
+  var bytes16 = [];
+  for (var bi = 0; bi < 16; bi++) bytes16.push(bi * 17);
+  var cloudCode = makeCloudCode(bytes16);
+  check('저장 코드: 난수 16개 → 영문·숫자 16자, 헷갈리는 글자(0 O 1 l I) 없음, 같은 난수면 같은 코드',
+    [cloudCode.length, /^[A-Za-z0-9]+$/.test(cloudCode), /[0O1lI]/.test(makeCloudCode(new Array(16).fill(255))), makeCloudCode(bytes16) === cloudCode],
+    [16, true, false, true]);
+  check('저장 코드: 4자씩 끊어 보여 주고, 붙여넣은 코드의 공백·"-" 는 빼서 원래대로',
+    [formatCloudCode('AbCdEfGhJkMnPqRs'), normalizeCloudCode(' AbCd-EfGh JkMn-PqRs\n')],
+    ['AbCd-EfGh-JkMn-PqRs', 'AbCdEfGhJkMnPqRs']);
+  check('저장 코드: 너무 짧거나 이상한 글자가 있으면 null (DB 함수와 같은 규칙: 영문·숫자 12~64자)',
+    [normalizeCloudCode(''), normalizeCloudCode('AbCd-EfGh'), normalizeCloudCode('AbCdEfGhJkM!'), normalizeCloudCode('가나다라마바사아자차카타'),
+      normalizeCloudCode(new Array(66).join('a')), normalizeCloudCode('AbCdEfGhJkMn')],
+    [null, null, null, null, null, 'AbCdEfGhJkMn']);
 
   var failed = results.filter(function (r) { return !r.ok; }).length;
   var summary = '결과: ' + results.length + '개 중 ' + (results.length - failed) + '개 통과, ' + failed + '개 실패';
