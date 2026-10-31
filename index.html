@@ -393,7 +393,7 @@
   .ai-status[data-state="down"] .ai-dot, .ai-status[data-state="down"] b { color: var(--error-text); }
   .ai-status[data-state="file"] { background: #f6f5f0; }
   .ai-status[data-state="needcode"] { border-left-color: var(--brass); background: var(--khaki-100); }
-  .ai-status[data-state="needcode"] b { color: var(--warn-text); }
+  .ai-status[data-state="needcode"] b, .ai-status[data-state="needcode"] .ai-dot { color: var(--warn-text); }
   /* Vercel 접근 코드 넣는 칸 (상태 상자 안, 둘째 줄) */
   .ai-code { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; flex: 1 1 100%; margin: 2px 0 0; }
   .ai-code label { font-weight: bold; }
