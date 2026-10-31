@@ -4,6 +4,6 @@
   "description": "교대근무 근무표 작성기 + AI 선호도 반영 (Vercel 서버리스 함수와 테스트)",
   "type": "module",
   "scripts": {
-    "test": "node tests/run-engine-tests.mjs && node --test tests/"
+    "test": "node tests/run-engine-tests.mjs && node --test tests/*.test.mjs"
   }
 }
