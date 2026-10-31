@@ -392,6 +392,12 @@
   .ai-status[data-state="down"] { border-left-color: var(--error-text); background: var(--error-bg); }
   .ai-status[data-state="down"] .ai-dot, .ai-status[data-state="down"] b { color: var(--error-text); }
   .ai-status[data-state="file"] { background: #f6f5f0; }
+  .ai-status[data-state="needcode"] { border-left-color: var(--brass); background: var(--khaki-100); }
+  .ai-status[data-state="needcode"] b { color: var(--warn-text); }
+  /* Vercel 접근 코드 넣는 칸 (상태 상자 안, 둘째 줄) */
+  .ai-code { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; flex: 1 1 100%; margin: 2px 0 0; }
+  .ai-code label { font-weight: bold; }
+  .ai-code input { flex: 1 1 140px; min-width: 0; max-width: 260px; min-height: 32px; padding: 4px 8px; font-size: 15px; }
 
   /* 선호도 입력 */
   .privacy-note { margin: 0 0 14px; }
@@ -710,6 +716,12 @@
       <span class="ai-dot" aria-hidden="true">●</span>
       <span class="ai-status-text" id="ai-status-text" role="status" aria-live="polite">AI 서버 확인 중…</span>
       <button type="button" id="ai-recheck">다시 확인</button>
+      <!-- Vercel에서만: 접근 코드(환경 변수 ACCESS_CODE와 같은 값)를 넣는 칸. 이 브라우저에만 기억하고 클라우드 저장·백업 코드에는 넣지 않음 -->
+      <form class="ai-code" id="ai-code-form" hidden>
+        <label for="ai-code">접근 코드</label>
+        <input type="password" id="ai-code" autocomplete="off" spellcheck="false" aria-describedby="ai-status-text">
+        <button type="submit" id="ai-code-save">확인</button>
+      </form>
     </div>
 
     <ol class="steps" aria-label="사용 순서">
@@ -4802,8 +4814,15 @@ var AI_NAME_MAX = 20;
 // 파일을 더블클릭해서 연 경우: 서버가 없으므로 요청을 아예 보내지 않음 (저장된 규칙은 그대로 계산에 쓰임)
 var AI_FILE_MODE = location.protocol === 'file:';
 
+// AI 서버가 어디서 돌고 있는지: 'colab'(timetable_server/server.py) | 'vercel'(api/ 서버리스 함수).
+// /api/health 답의 host 로 정해지고, 답을 받기 전에는 주소로 짐작함 (안내 문구를 고르는 데만 씀)
+var AI_HOST_GUESS = /\.vercel\.app$/.test(location.hostname) ? 'vercel' : 'colab';
+var AI_CODE_KEY = 'timetable-ai-access-code'; // Vercel 접근 코드를 이 브라우저에만 기억 (state 에 넣지 않음 = 클라우드·백업에 안 감)
+
 // 연결 상태: 'checking'(확인 중) | 'ok'(연결됨) | 'nokey'(키 없음) | 'down'(연결 실패) | 'file'(파일로 열림)
-var aiState = { status: AI_FILE_MODE ? 'file' : 'checking', model: '' };
+//   | 'needcode'(Vercel: 접근 코드를 넣어야 함)
+// message: 서버가 준 안내 (Vercel의 키 없음·접근 코드 안내). 있으면 기본 문구 대신 보여 줌
+var aiState = { status: AI_FILE_MODE ? 'file' : 'checking', model: '', host: AI_HOST_GUESS, message: '' };
 var aiCheckSeq = 0; // [다시 확인]을 여러 번 눌러도 마지막 확인 결과만 씀
 
 // 연결 상태 문구 (PRD_step1 F10 표). head 는 굵게, text 는 이어서
@@ -4815,14 +4834,33 @@ var AI_STATUS_TEXT = {
     text: ' Colab 런타임이 끊겼거나 서버가 꺼졌을 수 있어요. Colab에서 셀 3(서버 켜기)을 다시 실행한 뒤 [다시 확인]을 눌러 주세요. ' +
       '그래도 안 되면 셀 4로 창을 다시 열어 주세요.' },
   file: { head: '파일로 열려 있어 AI 기능은 쓸 수 없어요.',
-    text: ' Colab에서 서버를 켜고 연 창에서 써 주세요. 저장된 선호도 규칙은 지금도 자동 생성에 반영돼요.' }
+    text: ' Vercel 주소나 Colab에서 서버를 켜고 연 창에서 써 주세요. 저장된 선호도 규칙은 지금도 자동 생성에 반영돼요.' }
 };
+// Vercel에서 쓸 때의 문구 (Colab 셀 번호 대신 Vercel 화면을 안내)
+var AI_STATUS_TEXT_VERCEL = {
+  nokey: { head: 'AI 설정이 아직 안 됐어요.',
+    text: ' Vercel 프로젝트의 Settings → Environment Variables에 OPENROUTER_API_KEY와 ACCESS_CODE를 넣고 Redeploy를 누른 뒤 [다시 확인]을 눌러 주세요.' },
+  down: { head: 'AI 서버(Vercel 함수)에 연결하지 못했어요.',
+    text: ' 인터넷 연결을 확인하고 잠시 후 [다시 확인]을 눌러 주세요. 계속되면 Vercel의 Deployments 화면에서 배포가 끝났는지 확인해 주세요.' },
+  needcode: { head: '접근 코드를 넣어 주세요.', text: ' Vercel 환경 변수 ACCESS_CODE에 넣은 값이에요. 한 번 넣으면 이 브라우저가 기억해요.' }
+};
+// 지금 상태의 문구 { head, text }
+function aiStatusText(status) {
+  var t = (aiState.host === 'vercel' && AI_STATUS_TEXT_VERCEL[status]) || AI_STATUS_TEXT[status] || { head: '', text: '' };
+  if (aiState.message && (status === 'nokey' || status === 'needcode')) return { head: t.head, text: ' ' + aiState.message };
+  return t;
+}
+// 오류 문구 끝에 붙이는 "어떻게 하면 되는지" (어디서 서버가 도는지에 따라)
+function aiRetryHint() {
+  return aiState.host === 'vercel' ? '계속되면 잠시 뒤 새로 고침해 주세요.' : '계속되면 Colab에서 셀 3을 다시 실행해 주세요.';
+}
 // AI 버튼 옆에 쓰는 짧은 이유
 var AI_BLOCKED_TEXT = {
   checking: 'AI 서버를 확인하는 중이에요.',
   nokey: 'API 키가 없어 지금은 쓸 수 없어요.',
   down: 'AI 서버에 연결되지 않아 지금은 쓸 수 없어요.',
-  file: '파일로 열려 있어 AI 기능은 쓸 수 없어요.'
+  file: '파일로 열려 있어 AI 기능은 쓸 수 없어요.',
+  needcode: '접근 코드를 넣어야 쓸 수 있어요.'
 };
 var PREF_RANK_PATTERN = /이병|일병|상병|병장|하사|중사|중대|대대|연대|사단/g; // 계급·부대 이름처럼 보이는 말
 
@@ -4849,10 +4887,13 @@ function callServer(path, body, timeoutMs) {
   var controller = new AbortController();
   var timedOut = false;
   var timer = setTimeout(function () { timedOut = true; controller.abort(); }, timeoutMs);
-  var init = { cache: 'no-store', signal: controller.signal };
+  var init = { cache: 'no-store', signal: controller.signal, headers: {} };
+  var code = loadAiCode();
+  // Vercel 접근 코드 (한글도 되게 encodeURIComponent). Colab 서버는 이 머리말을 보지 않음
+  if (code) init.headers['X-Access-Code'] = encodeURIComponent(code);
   if (body !== undefined) {
     init.method = 'POST';
-    init.headers = { 'Content-Type': 'application/json' };
+    init.headers['Content-Type'] = 'application/json';
     init.body = JSON.stringify(body);
   }
   return fetch(path, init).then(function (res) {
@@ -4860,8 +4901,8 @@ function callServer(path, body, timeoutMs) {
       var data = null;
       try { data = JSON.parse(text); } catch (e) { data = null; }
       if (!isPlainObject(data)) {
-        return { ok: false, kind: 'badjson', code: '', message: 'AI 서버의 답을 읽지 못했어요. Colab에서 셀 3을 다시 실행한 뒤 ' +
-          '새로 고침해 주세요. (상태 코드 ' + res.status + ')' };
+        return { ok: false, kind: 'badjson', code: '', message: 'AI 서버의 답을 읽지 못했어요. ' +
+          (aiState.host === 'vercel' ? '잠시 후 ' : 'Colab에서 셀 3을 다시 실행한 뒤 ') + '새로 고침해 주세요. (상태 코드 ' + res.status + ')' };
       }
       if (data.ok !== true) {
         return { ok: false, kind: 'error', code: String(data.code || ''),
@@ -4873,9 +4914,10 @@ function callServer(path, body, timeoutMs) {
   }).catch(function () {
     if (timedOut) {
       return { ok: false, kind: 'timeout', code: '', message: '서버가 ' + Math.round(timeoutMs / 1000) + '초 넘게 답하지 않아 ' +
-        '기다리기를 멈췄어요. 잠시 후 다시 시도해 주세요. 계속되면 Colab에서 셀 3을 다시 실행해 주세요.' };
+        '기다리기를 멈췄어요. 잠시 후 다시 시도해 주세요. ' + aiRetryHint() };
     }
-    return { ok: false, kind: 'down', code: '', message: AI_STATUS_TEXT.down.head + AI_STATUS_TEXT.down.text };
+    var down = aiStatusText('down');
+    return { ok: false, kind: 'down', code: '', message: down.head + down.text };
   }).then(function (result) {
     clearTimeout(timer);
     return result;
@@ -4883,9 +4925,24 @@ function callServer(path, body, timeoutMs) {
 }
 
 // 해석·설명이 연결 실패로 끝나면 상태를 '연결 실패'로, 키가 없다는 답이면 '키 없음'으로 (F10)
+// Vercel: 접근 코드가 틀렸으면 '접근 코드 필요'로, 접근 코드 설정이 없으면 '키 없음'(설정 안 됨)으로
 function noteAiFailure(res) {
   if (res.kind === 'down') setAiStatus('down');
-  else if (res.code === 'no_key') setAiStatus('nokey');
+  else if (res.code === 'no_key' || res.code === 'no_access_code') setAiStatus('nokey', undefined, res.message);
+  else if (res.code === 'access_denied') setAiStatus('needcode', undefined, res.message);
+}
+
+// 접근 코드: 이 브라우저(localStorage)에만. 사생활 보호 창 등에서 막혀도 화면은 그대로 동작
+var aiCodeMemory = ''; // localStorage 를 못 쓸 때 이 창이 열려 있는 동안만 기억
+function loadAiCode() {
+  try { return localStorage.getItem(AI_CODE_KEY) || aiCodeMemory; } catch (e) { return aiCodeMemory; }
+}
+function saveAiCode(code) {
+  aiCodeMemory = code;
+  try {
+    if (code) localStorage.setItem(AI_CODE_KEY, code);
+    else localStorage.removeItem(AI_CODE_KEY);
+  } catch (e) { /* 기억하지 못해도 aiCodeMemory 로 이 창에서는 씀 */ }
 }
 
 // 기다리는 동안: 안내 상자를 보이고 지난 시간(초)을 1초마다 바꿈. 끝낼 때 부를 함수를 돌려줌
@@ -4937,14 +4994,26 @@ function checkAiServer() {
   setAiStatus('checking');
   callServer('api/health', undefined, AI_HEALTH_TIMEOUT_MS).then(function (res) {
     if (seq !== aiCheckSeq) return;
-    if (!res.ok) setAiStatus('down');
-    else setAiStatus(res.data.key === true ? 'ok' : 'nokey', typeof res.data.model === 'string' ? res.data.model : '');
+    if (!res.ok) {
+      setAiStatus('down');
+      return;
+    }
+    var data = res.data;
+    var model = typeof data.model === 'string' ? data.model : '';
+    var message = typeof data.message === 'string' ? data.message : '';
+    aiState.host = data.host === 'vercel' ? 'vercel' : 'colab';
+    if (aiState.host !== 'vercel') setAiStatus(data.key === true ? 'ok' : 'nokey', model, '');
+    else if (data.ready !== true) setAiStatus('nokey', model, message); // 키나 ACCESS_CODE 가 Vercel에 없음
+    else if (data.access === 'ok') setAiStatus('ok', model, '');
+    else setAiStatus('needcode', model, data.access === 'missing' ? '' : message); // 코드를 안 넣었거나 틀림·잠김
   });
 }
 
-function setAiStatus(status, model) {
+// message: 서버가 준 안내 (없으면 '' → 기본 문구). undefined 면 그대로 둠
+function setAiStatus(status, model, message) {
   aiState.status = status;
   if (model !== undefined) aiState.model = model;
+  if (message !== undefined) aiState.message = message;
   renderAiStatus();
   updatePrefButtons();
 }
@@ -4957,12 +5026,13 @@ function renderAiStatus() {
     text.appendChild(el('b', '', 'AI 연결됨'));
     text.appendChild(document.createTextNode(' · 모델 ' + (aiState.model || '(이름 없음)')));
   } else {
-    var t = AI_STATUS_TEXT[aiState.status];
+    var t = aiStatusText(aiState.status);
     if (t.head) text.appendChild(el('b', '', t.head));
     text.appendChild(document.createTextNode(t.text));
   }
   aiRecheckButton.hidden = AI_FILE_MODE; // 파일로 열렸으면 다시 확인해도 소용없음
   aiRecheckButton.disabled = aiState.status === 'checking';
+  aiCodeForm.hidden = aiState.status !== 'needcode';
 }
 
 // AI 버튼을 못 누르는 연결 이유 (연결됨이면 ''). where: 'prefs'(선호도 탭) | 'roster'(근무표 탭)
@@ -4972,6 +5042,21 @@ function aiBlockedText(where) {
   if (aiState.status === 'checking') return base;
   return base + (where === 'roster' ? ' 선호도 탭 맨 위 안내를 보세요.' : ' 맨 위 안내를 보세요.');
 }
+
+// [확인]: 넣은 접근 코드를 기억하고 /api/health 로 맞는지 바로 확인
+var aiCodeForm = document.getElementById('ai-code-form');
+var aiCodeInput = document.getElementById('ai-code');
+aiCodeForm.addEventListener('submit', function (event) {
+  event.preventDefault();
+  var code = aiCodeInput.value.trim();
+  if (!code) {
+    aiCodeInput.focus();
+    return;
+  }
+  saveAiCode(code);
+  aiCodeInput.value = '';
+  checkAiServer();
+});
 
 /* --- 선호도 입력과 [AI로 해석하기] (F8) --- */
 
@@ -5086,6 +5171,12 @@ function runPrefParse() {
   });
 }
 
+// Vercel이 첫 모델 대신 다음 모델로 답했으면 알려 줌 (Colab 서버 답에는 model 이 없음)
+function usedModelNote(data) {
+  if (typeof data.model !== 'string' || !data.model || data.model === aiState.model) return '';
+  return ' (첫 모델이 답하지 못해 ' + data.model + ' 모델로 해석했어요.)';
+}
+
 // 서버의 해석 결과 → 모든 사람의 규칙을 새것으로 (새 규칙은 모두 켜짐). 이름으로 사람에게 붙이는 일과
 // 화면 파일 검사는 계산 로직의 matchPreferenceResult 가 함. 못 붙인 규칙은 '바꾸지 못한 문장'으로
 function applyPrefResult(data) {
@@ -5102,7 +5193,7 @@ function applyPrefResult(data) {
   });
   prefParse.notice = total
     ? { type: 'ok', toRoster: true, text: '규칙 ' + total + '개를 만들었어요 (' + parts.join(' · ') + '). ' +
-      '근무표 탭에서 [다시 생성]을 누르면 반영돼요.' }
+      '근무표 탭에서 [다시 생성]을 누르면 반영돼요.' + usedModelNote(data) }
     : { type: 'warn', text: '규칙으로 바꿀 문장을 찾지 못했어요. 설정 탭과 똑같은 이름과 원하는 근무를 함께 써 주세요.' };
   renderSchedule(); // 저장 + 근무표 탭 숫자 + (선호도 탭을 보고 있으면) 규칙 목록
 }
