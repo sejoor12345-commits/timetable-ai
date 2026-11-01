@@ -21,6 +21,11 @@ function loadPlaywright() {
   for (const name of ['playwright', '/opt/node22/lib/node_modules/playwright']) {
     try { return require(name); } catch (e) { /* 다음 */ }
   }
+  // GitHub Actions(CI=true)에서는 건너뛰지 않고 실패로 알린다 (설치가 깨져도 ✓로 보이면 시험을 안 한 것을 모름)
+  if (process.env.CI) {
+    console.error('Playwright를 불러오지 못했어요. CI의 "Playwright 설치" 단계를 확인해 주세요.');
+    process.exit(1);
+  }
   console.error('Playwright가 없어서 화면 시험을 건너뛰어요. (npm i --no-save playwright && npx playwright install chromium)');
   process.exit(0);
 }
