@@ -1058,6 +1058,20 @@
   "JSON 없음",
   "{\"rules\": ["
  ],
+ "answer_text": [
+  "{\"choices\": [{\"message\": {\"content\": \"<think>음</think> 답\"}}]}",
+  "",
+  "not json",
+  "{\"choices\": []}",
+  "{\"choices\": [{\"message\": {\"content\": null}}]}",
+  "{\"error\": {\"code\": 429, \"message\": \"rate\"}}",
+  "{\"error\": {\"code\": 429}, \"choices\": []}",
+  "{\"error\": {}}",
+  "{\"error\": \"x\", \"choices\": []}",
+  "{\"error\": [], \"choices\": []}",
+  "{\"error\": \"\", \"choices\": [{\"message\": {\"content\": \"ok\"}}]}",
+  "{\"error\": {\"code\": \"429\"}}"
+ ],
  "remove_think": [
   "<think>생각</think>답",
   "생각만</think>  답  ",

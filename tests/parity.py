@@ -60,6 +60,7 @@ def compute():
         out["check_answer"].append(run(preferences.check_answer, case["data"], case["people"], days))
 
     out["extract_json"] = [run(openrouter_client.extract_json, text) for text in data["extract_json"]]
+    out["answer_text"] = [run(openrouter_client.answer_text, body) for body in data["answer_text"]]
     out["remove_think"] = [openrouter_client.remove_think(text) for text in data["remove_think"]]
     out["summary_data"] = [preferences.build_summary_data(report) for report in data["summary_data"]]
     out["summary_messages"] = [

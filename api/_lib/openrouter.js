@@ -114,6 +114,13 @@ function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+// Python에서 참으로 치는 값인지 (JS와 달리 빈 목록·빈 객체는 거짓)
+function pyTruthy(value) {
+  if (Array.isArray(value)) return value.length > 0;
+  if (isPlainObject(value)) return Object.keys(value).length > 0;
+  return Boolean(value);
+}
+
 // OpenRouter의 정상(200) 응답 본문에서 AI가 쓴 답 글자만 꺼낸다
 export function answerText(body, model) {
   if (!body.trim()) throw new OpenRouterError(EMPTY_MESSAGE, 'ai_empty');
@@ -124,7 +131,8 @@ export function answerText(body, model) {
     throw new OpenRouterError(`${READ_MESSAGE} (받은 내용: ${errorDetail(body)})`, 'ai_server');
   }
   // 이미 200을 보낸 뒤라 AI 쪽 오류가 본문 안에 {"error": …}로 오는 경우
-  if (isPlainObject(data) && data.error && !data.choices) {
+  // (Python의 data.get("error") and not data.get("choices")와 같게: 빈 목록 []·빈 객체 {}는 '없음'으로 본다)
+  if (isPlainObject(data) && pyTruthy(data.error) && !pyTruthy(data.choices)) {
     const code = isPlainObject(data.error) ? data.error.code : undefined;
     throw statusError(Number.isInteger(code) && code >= 400 ? code : 502, body, model);
   }

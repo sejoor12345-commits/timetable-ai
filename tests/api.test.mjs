@@ -11,7 +11,7 @@ import {
   ACCESS_HEADER, AI_REQUESTS_PER_WINDOW, CODE_FAILS_PER_WINDOW, aiLimiter, checkPreferencesRequest, checkSummaryRequest,
   codeFailLimiter, createHandler, shortenSummary,
 } from '../api/_lib/http.js';
-import { API_URL, DEFAULT_MODELS, extractJson, removeThink } from '../api/_lib/openrouter.js';
+import { API_URL, DEFAULT_MODELS, answerText, extractJson, removeThink } from '../api/_lib/openrouter.js';
 import {
   BAD_ANSWER_MESSAGE, buildParseMessages, buildSummaryData, buildSummaryMessages, checkAnswer, periodDates, plainText,
 } from '../api/_lib/preferences.js';
@@ -115,6 +115,12 @@ test('JSON 꺼내기·<think> 지우기·설명 정리: Python과 같음', () =>
     let got;
     try { got = { ok: extractJson(text) }; } catch (e) { got = { error: 'ValueError' }; }
     assert.deepEqual(got, EXPECTED.extract_json[i], text);
+  });
+  // OpenRouter 200 응답 본문 읽기: 오류 코드가 Python과 같아야 함 (빈 choices + 본문 안 오류 429 → ai_rate_limit 등)
+  INPUTS.answer_text.forEach((body, i) => {
+    let got;
+    try { got = { ok: answerText(body, 'm') }; } catch (e) { got = { error: e.code }; }
+    assert.deepEqual(got, EXPECTED.answer_text[i], body);
   });
   assert.deepEqual(INPUTS.remove_think.map(removeThink), EXPECTED.remove_think);
   assert.deepEqual(INPUTS.plain_text.map(plainText), EXPECTED.plain_text);

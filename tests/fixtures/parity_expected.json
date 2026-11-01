@@ -802,6 +802,44 @@
    "error": "ValueError"
   }
  ],
+ "answer_text": [
+  {
+   "ok": "답"
+  },
+  {
+   "error": "ai_empty"
+  },
+  {
+   "error": "ai_server"
+  },
+  {
+   "error": "ai_server"
+  },
+  {
+   "error": "ai_empty"
+  },
+  {
+   "error": "ai_rate_limit"
+  },
+  {
+   "error": "ai_rate_limit"
+  },
+  {
+   "error": "ai_server"
+  },
+  {
+   "error": "ai_server"
+  },
+  {
+   "error": "ai_server"
+  },
+  {
+   "ok": "ok"
+  },
+  {
+   "error": "ai_server"
+  }
+ ],
  "remove_think": [
   "답",
   "답",
