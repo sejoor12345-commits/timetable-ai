@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>실사용 확인 체크리스트</title>
+<!-- 진짜 AI로 근무표 작성기를 확인할 때 휴대폰에서 하나씩 체크하는 페이지. 체크한 것은 이 기기(localStorage)에만 저장된다.
+     외부 글꼴·라이브러리 없음. 항목은 README.md의 '실사용 확인 체크리스트'와 같다 (PRD_step1.md 9.1을 Vercel용으로 옮김). -->
+<style>
+  :root {
+    --olive-900: #2b2f1e; --olive-600: #4b5320; --khaki-100: #f3eedc; --brass: #b08d3c;
+    --text: #1f2316; --muted: #5d6150; --line: #d8d3c0; --bg: #eceae2; --good: #2f6b2a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 -apple-system, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; }
+  header { background: var(--olive-900); color: #fff; padding: 14px 16px; border-bottom: 3px solid var(--brass); }
+  header h1 { margin: 0; font-size: 19px; }
+  header p { margin: 2px 0 0; font-size: 14px; color: #e6dfc4; }
+  main { max-width: 720px; margin: 0 auto; padding: 16px; }
+  .card { background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; margin-bottom: 14px; }
+  .card h2 { margin: 0 0 8px; font-size: 17px; }
+  .progress { display: flex; align-items: center; gap: 10px; font-weight: bold; }
+  progress { flex: 1; height: 10px; accent-color: var(--olive-600); }
+  ol { list-style: none; margin: 0; padding: 0; }
+  li { border-top: 1px solid var(--line); }
+  li:first-child { border-top: none; }
+  label.item { display: flex; gap: 12px; align-items: flex-start; padding: 12px 2px; cursor: pointer; min-height: 44px; }
+  label.item input { width: 24px; height: 24px; margin: 1px 0 0; flex: none; accent-color: var(--good); }
+  label.item input:checked + span { color: var(--muted); text-decoration: line-through; text-decoration-color: #9a9a8a; }
+  pre { margin: 8px 0; padding: 10px 12px; background: var(--khaki-100); border-radius: 4px; white-space: pre-wrap; word-break: keep-all; font: 15px/1.6 inherit; }
+  button { min-height: 40px; padding: 6px 14px; font: inherit; border: 1px solid #b9b39c; border-radius: 4px; background: #fff; color: var(--text); cursor: pointer; }
+  button.primary { background: var(--olive-600); color: #fff; border-color: var(--olive-600); }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .hint { color: var(--muted); font-size: 14px; }
+  a { color: var(--olive-600); }
+  :focus-visible { outline: 3px solid var(--brass); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>실사용 확인 체크리스트</h1>
+  <p>근무표 작성기 + 진짜 AI · 체크는 이 기기에만 저장돼요</p>
+</header>
+<main>
+  <div class="card">
+    <div class="progress"><span id="count">0 / 0</span><progress id="bar" max="1" value="0"></progress></div>
+    <p class="hint">가명(A~E)만 쓰세요. 실명·계급·부대 이름은 넣지 않아요. <a href="./">근무표 작성기 열기</a></p>
+  </div>
+
+  <div class="card">
+    <h2>예시 글 (인원 A~E, 2026-09-28(월)부터 4주)</h2>
+    <pre id="sample">A는 주말에는 주간이 좋대요.
+B는 주 비 주 비 주 야 비 흐름을 좋아해요.
+C는 10/3에는 꼭 쉬고 싶어요.
+D는 야간 위주로 서고 싶어요.
+E는 월요일 야간은 가능하면 피하고 싶대요.
+F는 평일 주간만 원해요.</pre>
+    <div class="row"><button type="button" id="copy">예시 글 복사</button><span class="hint" id="copy-msg" role="status"></span></div>
+  </div>
+
+  <div class="card">
+    <h2>확인할 것</h2>
+    <ol id="list"></ol>
+  </div>
+
+  <div class="row"><button type="button" id="reset">체크 모두 지우기</button></div>
+</main>
+<script>
+  var ITEMS = [
+    'Vercel 환경 변수 3개(OPENROUTER_API_KEY, ACCESS_CODE, OPENROUTER_MODELS)를 넣고 Redeploy한 뒤, 선호도 탭에 "접근 코드를 넣어 주세요"가 보인다.',
+    '접근 코드를 넣고 [확인]을 누르면 "● AI 연결됨 · 모델 …"이 보인다. 틀린 코드는 "맞지 않아요"가 뜬다.',
+    '예시 글로 [AI로 해석하기] → 지난 시간(초)이 보이고, 1분 안에 A~E 규칙 5개 + "바꾸지 못한 문장"(F) 1개가 나온다.',
+    'B는 "근무 흐름: 주 비 주 비 주 야 비", C는 "10/3 근무 피하기 · 강함"이고, 규칙마다 원문 인용이 보인다.',
+    '규칙을 끄고 켜고, 강도를 바꾸고, 지울 수 있다. 바꾸면 근무표 탭의 총 벌점이 바로 바뀐다.',
+    '[다시 생성] 후 요약 표 "선호도" 열과 "선호도 반영 결과"가 보이고, A의 주말 야간이 0~1번이다.',
+    '선호도를 켜고 만들어도(5명·4주·일정 없음) 위로휴가 "모두 달성", 빈 주·야 칸 0칸, 야야 0번이다.',
+    '[AI로 결과 설명 듣기] → 3~6문장 한국어 설명. 목록에 없는 사람·날짜를 지어내지 않는다.',
+    '휴대폰 폭에서 선호도 탭과 결과가 가로 스크롤 없이 읽힌다.',
+    '[백업 코드 복사] → 새로 고침 → [복원]으로 선호도 글과 규칙(켜기/끄기·강도 포함)이 그대로 돌아온다.',
+    'openrouter.ai Activity에서 쓴 금액이 보이고, 키에 사용 한도(Credit limit)가 걸려 있다.',
+    'Colab에서도(셀 1~4) 예전처럼 AI가 된다. (Colab은 접근 코드 없이)',
+    'GitHub PR 아래 자동 검사 3개(Node·Python·화면)가 모두 ✓이다.'
+  ];
+  var KEY = 'timetable-checklist-v1';
+
+  function load() {
+    try { return JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { return {}; }
+  }
+  function save(done) {
+    try { localStorage.setItem(KEY, JSON.stringify(done)); } catch (e) { /* 저장 못 해도 화면에서는 체크됨 */ }
+  }
+
+  var done = load();
+  var list = document.getElementById('list');
+
+  function updateCount() {
+    var n = ITEMS.filter(function (_, i) { return done[i]; }).length;
+    document.getElementById('count').textContent = n + ' / ' + ITEMS.length;
+    var bar = document.getElementById('bar');
+    bar.max = ITEMS.length;
+    bar.value = n;
+  }
+
+  ITEMS.forEach(function (text, i) {
+    var li = document.createElement('li');
+    var label = document.createElement('label');
+    label.className = 'item';
+    var box = document.createElement('input');
+    box.type = 'checkbox';
+    box.checked = Boolean(done[i]);
+    box.addEventListener('change', function () {
+      done[i] = box.checked;
+      save(done);
+      updateCount();
+    });
+    var span = document.createElement('span');
+    span.textContent = (i + 1) + '. ' + text;
+    label.appendChild(box);
+    label.appendChild(span);
+    li.appendChild(label);
+    list.appendChild(li);
+  });
+  updateCount();
+
+  document.getElementById('reset').addEventListener('click', function () {
+    if (!confirm('체크를 모두 지울까요?')) return;
+    done = {};
+    save(done);
+    Array.prototype.forEach.call(list.querySelectorAll('input'), function (b) { b.checked = false; });
+    updateCount();
+  });
+
+  document.getElementById('copy').addEventListener('click', function () {
+    var text = document.getElementById('sample').textContent;
+    var msg = document.getElementById('copy-msg');
+    function fallback() {
+      var area = document.createElement('textarea');
+      area.value = text;
+      document.body.appendChild(area);
+      area.select();
+      try { document.execCommand('copy'); msg.textContent = '복사했어요.'; } catch (e) { msg.textContent = '길게 눌러 직접 복사해 주세요.'; }
+      document.body.removeChild(area);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { msg.textContent = '복사했어요.'; }, fallback);
+    } else {
+      fallback();
+    }
+  });
+</script>
+</body>
+</html>
