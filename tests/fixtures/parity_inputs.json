@@ -991,6 +991,62 @@
    ],
    "start": "2026-09-28",
    "weeks": 4
+  },
+  {
+   "name": "글 안의 지시로 생긴 규칙 밖 모양: type이 목록·객체, 다른 나라 숫자 날짜",
+   "data": {
+    "rules": [
+     {
+      "person": "A",
+      "type": [
+       "day_shift"
+      ],
+      "days": "주말",
+      "shift": "주",
+      "want": "prefer",
+      "quote": "A 주말 주간"
+     },
+     {
+      "person": "B",
+      "type": {
+       "name": "ratio"
+      },
+      "shift": "야",
+      "level": "only",
+      "quote": "B 야간만"
+     },
+     {
+      "person": "C",
+      "type": "date_shift",
+      "dates": [
+       "٢٠٢٦-١٠-٠٣"
+      ],
+      "shift": "근무",
+      "want": "avoid",
+      "quote": "C 10/3 쉼"
+     },
+     {
+      "person": "D",
+      "type": "date_shift",
+      "dates": [
+       "2026-10-03"
+      ],
+      "shift": "근무",
+      "want": "avoid",
+      "quote": "D 10/3 쉼"
+     }
+    ],
+    "unparsed": []
+   },
+   "people": [
+    "A",
+    "B",
+    "C",
+    "D",
+    "E"
+   ],
+   "start": "2026-09-28",
+   "weeks": 4
   }
  ],
  "extract_json": [

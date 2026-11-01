@@ -165,6 +165,17 @@ def test_parse_preferences_schema_violations_go_to_unparsed(monkeypatch):
     assert [r.split(" ")[0] for r in reasons] == ["인원", "야야가", "규칙"]
 
 
+def test_parse_preferences_odd_type_and_digits_do_not_crash(monkeypatch):
+    """글 안의 지시 때문에 AI가 type을 목록·객체로 주거나 다른 나라 숫자로 날짜를 써도 500(TypeError)이 아니라 unparsed."""
+    answer = {"rules": [{"person": "A", "type": ["day_shift"], "days": "주말", "shift": "주", "want": "prefer"},
+                        {"person": "B", "type": {"t": "ratio"}, "shift": "야", "level": "only"},
+                        {"person": "C", "type": "date_shift", "dates": ["٢٠٢٦-١٠-٠٣"], "shift": "근무", "want": "avoid"}]}
+    fake_chat(monkeypatch, json.dumps(answer, ensure_ascii=False))
+    result = preferences.parse_preferences(PRD_TEXT, PEOPLE, "2026-09-28", 4, [])
+    assert result["rules"] == []
+    assert [u["reason"] for u in result["unparsed"]] == [preferences.BAD_TYPE, preferences.BAD_TYPE, preferences.BAD_DATES]
+
+
 def test_explain_result_plain_text(monkeypatch):
     fake_chat(monkeypatch, "**전체** 결과예요.\n- A는 지켰어요.")
     assert preferences.explain_result({"people": []}) == "전체 결과예요. A는 지켰어요."
