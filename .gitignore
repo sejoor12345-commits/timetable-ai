@@ -8,3 +8,6 @@ test-results/
 screenshots/
 # 근무표 서버 기록 (Colab 셀 3이 timetable_server/server.log 로 모음)
 server.log
+# 테스트 도구가 만드는 폴더
+.pytest_cache/
+node_modules/

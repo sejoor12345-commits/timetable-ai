@@ -22,6 +22,9 @@ the auto-generated roster.
   **preference penalty** term. Hard constraints are never relaxed for a preference; preferences rank below
   인원 공백·필수 조건, 위로휴가 목표, 기준 근무 개수 and 야야.
 - **Model:** `stealth/space-bunny-alpha` (user's choice). One constant in the Python client; don't change it.
+  On Vercel the model is a fallback chain from env `OPENROUTER_MODELS` (default: that model first, then
+  `google/gemini-2.5-flash-lite`, then `openrouter/free`; constant `DEFAULT_MODELS` in `api/_lib/openrouter.js`).
+  As of 2026-10-31 the stealth model was not in OpenRouter's public model list — the user decides whether to change it.
 - **Key:** only from env var `OPENROUTER_API_KEY`, copied from Colab 보안 비밀 (🔑) in a notebook cell
   (see `PRD_step1.md` §8 for the Colab cells). The key never reaches the browser.
 - **Server:** `timetable_server/` — Python standard library `http.server` + `requests` (both preinstalled on
@@ -47,10 +50,16 @@ the auto-generated roster.
 ## Deployment
 
 - **Vercel** serves the repo root as a static site (Framework Preset: Other, no build command, Root Directory
-  empty): `/` → `index.html`. The AI server does not run there, so on Vercel the 선호도 tab shows "AI 서버에 연결하지
-  못했어요" and everything else (manual input, checks, auto-generation, saved preference rules) works. Running the AI on
-  Vercel would need a serverless function + the key in Vercel env vars + some access protection — not done yet.
-- **Colab** runs `timetable_server/server.py` (serves `index.html` + `/api/*`) — the only place the AI works today.
+  empty): `/` → `index.html`, plus Node serverless functions in `api/` (`health.js`, `preferences.js`, `summary.js`;
+  shared code in `api/_lib/`, which Vercel doesn't expose as routes). They are a faithful JS port of
+  `timetable_server/` (same prompts, validation and Korean messages — `tests/parity.py` + `tests/api.test.mjs` compare
+  them character by character; change both sides together and regenerate with `python tests/parity.py --write`).
+  Env vars: `OPENROUTER_API_KEY` (required), `ACCESS_CODE` (required — AI is locked without it; sent by the page as the
+  `X-Access-Code` header, URI-encoded, remembered only in localStorage `timetable-ai-access-code`), `OPENROUTER_MODELS`
+  (optional, comma-separated fallback chain). Per-IP in-memory rate limit (15 AI calls / 10 min, 10 wrong codes →
+  10 min lock). `maxDuration` 60 s (Hobby-safe), AI total budget 55 s across models. Logs: path/status/ms/model only.
+  The page detects Vercel from `/api/health` (`host: "vercel"`) and shows Vercel-specific guidance and a code field.
+- **Colab** runs `timetable_server/server.py` (serves `index.html` + `/api/*`) and still works unchanged (no access code).
 - Data follows the **저장 코드** (Supabase), not the origin: on a new origin/device the page starts a new code, and the
   user loads the old one with [다른 코드로 불러오기] (or the backup code, which still works).
 
@@ -76,7 +85,14 @@ the auto-generated roster.
 
 ## Testing
 
-No API key here and `openrouter.ai` is blocked, so AI calls are verified against fakes: patch `requests.post`
+Automated (CI: `.github/workflows/ci.yml`, runs on push to main and PRs):
+- `npm test` — `tests/run-engine-tests.mjs` runs `runTests()` from `index.html` in Node (it slices the 계산 로직 part of
+  the first `<script>` up to the `화면 코드` comment — keep that comment) + `tests/api.test.mjs` (api/ with mocked fetch).
+- `python -m pytest tests/` — `tests/test_timetable_server.py` (fake `requests.post`, real HTTP server on a free port).
+- `node tests/e2e-smoke.mjs [shots-dir]` — Playwright at 390×844; `/api/*` is routed to the real api/ handlers with a
+  fake OpenRouter, Supabase RPCs faked.
+
+No API key here, so AI calls are verified against fakes: patch `requests.post`
 (e.g. a `sitecustomize.py` on `PYTHONPATH` in the server process) or point the client at a local fake OpenRouter server. Browser checks use the global Node
 Playwright (`/opt/node22/lib/node_modules/playwright`, Chromium at `/opt/pw-browsers`). Real AI quality/speed is
 checked by the user in Colab.
@@ -111,8 +127,9 @@ directly, so open decisions come back in their reports ("사용자에게 물어�
   improves it (it only accepts a lower total penalty).
 - Open ideas the user hasn't decided: longer/better search, a "[다시 생성]을 더 누르면 나아질 수 있어요" hint, `aria-disabled`
   on the parse button, an "예시 글 넣기" button.
-- Test scripts were kept out of the repo on purpose; QA's matrix is PRD_step1 §9.2. Browser checks use the global Node
-  Playwright; fake the AI by patching `requests.post` in the server process (e.g. `sitecustomize.py` on `PYTHONPATH`).
+- Tests now live in `tests/` and run in CI (see Testing). QA's full matrix is still PRD_step1 §9.2.
+- AI on Vercel (`api/`) is built and tested against fakes; the user still has to add the env vars and run the
+  real-AI checklist (`README.md` / `checklist.html`).
 
 ## Talking to the user
 

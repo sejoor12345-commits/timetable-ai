@@ -249,7 +249,8 @@ def month_day(day):
 
 def parse_day(value):
     """"2026-10-03"(또는 "2026-10-3") → date. 날짜가 아니면 None."""
-    match = re.fullmatch(r"\s*(\d{4})-(\d{1,2})-(\d{1,2})\s*", value) if isinstance(value, str) else None
+    # [0-9]: \d는 "٢٠٢٦"처럼 다른 나라 숫자도 받으므로 보통 숫자만 (server.py·Vercel 함수와 같은 기준)
+    match = re.fullmatch(r"\s*([0-9]{4})-([0-9]{1,2})-([0-9]{1,2})\s*", value) if isinstance(value, str) else None
     if not match:
         return None
     try:
@@ -384,7 +385,9 @@ def check_rule(item, people, period_days):
         return None, NO_PERSON
     if person not in people:
         return None, UNKNOWN_PERSON.format(name=shorten(person, 20))
-    checker = CHECKERS.get(item.get("type"))
+    rule_type = item.get("type")
+    # AI가 type을 목록·객체로 주면 dict.get이 TypeError를 내서 서버가 500이 되므로 글자일 때만 찾는다
+    checker = CHECKERS.get(rule_type) if isinstance(rule_type, str) else None
     if checker is None:
         return None, BAD_TYPE
     fields, reason = checker(item, period_days)
